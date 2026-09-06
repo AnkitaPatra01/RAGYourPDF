@@ -68,7 +68,7 @@ st.markdown("""
     }
 
     .chat-header {
-        font-size: 18px;
+        font-size: 25px;
         font-weight: 600;
         color: #1e3a5f;
         margin-bottom: 15px;
@@ -93,6 +93,19 @@ st.markdown("""
 
     div[data-testid="stChatMessage"] {
         border-radius: 12px;
+        color: #000000 !important;
+    }
+
+    div[data-testid="stChatMessageContent"] {
+        color: #000000 !important;
+    }
+
+    div[data-testid="stChatMessageContent"] p {
+        color: #000000 !important;
+    }
+
+    div[data-testid="stChatMessageContent"] span {
+        color: #000000 !important;
     }
 
     .pdf-viewer {
@@ -105,60 +118,89 @@ st.markdown("""
     .chat-panel {
         max-width: 700px;
         margin: 0 auto;
+        background-color: #f8fafc;
+        border: 1px solid #dce3eb;
+        border-radius: 14px;
+        padding: 18px;
     }
-    
-    div[data-testid="stChatMessage"] {
-    color: #000000 !important;
-}
 
-div[data-testid="stChatMessageContent"] {
-    color: #000000 !important;
-}
+    .assistant-answer {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 14px;
+        border-radius: 12px;
+        line-height: 1.6;
+    }
 
-div[data-testid="stChatMessageContent"] p {
-    color: #000000 !important;
-}
+    .assistant-answer * {
+        color: #000000 !important;
+    }
 
-div[data-testid="stChatMessageContent"] span {
-    color: #000000 !important;
-}
+    .source-label {
+        color: #374151 !important;
+        font-size: 14px;
+        font-weight: 700;
+        margin-top: 12px;
+        margin-bottom: 6px;
+    }
 
-.assistant-answer {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    border: 1px solid #cbd5e1 !important;
-    padding: 14px;
-    border-radius: 12px;
-    line-height: 1.6;
-}
+    .source-item {
+        background-color: #eef1f5 !important;
+        color: #1f2937 !important;
+        border-left: 4px solid #64748b;
+        padding: 10px 12px;
+        border-radius: 5px;
+        margin-bottom: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        word-break: break-word;
+    }
 
-.assistant-answer * {
-    color: #000000 !important;
-}
+    .source-item * {
+        color: #1f2937 !important;
+    }
 
-.source-label {
-    color: #000000 !important;
-    font-size: 14px;
-    font-weight: 700;
-    margin-top: 12px;
-    margin-bottom: 6px;
-}
+    div[data-testid="stExpander"] {
+        background-color: #f3f4f6 !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 8px !important;
+        overflow: hidden !important;
+    }
 
-.source-item {
-    background-color: #e2e8f0 !important;
-    color: #000000 !important;
-    border-left: 4px solid #2563eb;
-    padding: 10px 12px;
-    border-radius: 5px;
-    margin-bottom: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    word-break: break-word;
-}
+    div[data-testid="stExpander"] details {
+        background-color: #f3f4f6 !important;
+    }
 
-.source-item * {
-    color: #000000 !important;
-}
+    div[data-testid="stExpander"] details summary {
+        background-color: #d1d5db !important;
+        color: #374151 !important;
+        border-radius: 0 !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stExpander"] details summary:hover {
+        background-color: #c4c9d1 !important;
+        color: #1f2937 !important;
+    }
+
+    div[data-testid="stExpander"] summary p,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary svg {
+        color: #374151 !important;
+        fill: #374151 !important;
+    }
+
+    div[data-testid="stExpander"] p {
+        color: #1f2937 !important;
+    }
+
+    .upload-wrapper {
+        width: 100%;
+        max-width: 850px;
+        margin: 45px auto 0 auto;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -310,10 +352,20 @@ if st.session_state.page == "upload":
         unsafe_allow_html=True
     )
 
+    st.markdown(
+        '<div class="upload-wrapper">',
+        unsafe_allow_html=True
+    )
+
     uploaded = st.file_uploader(
         "Upload your PDF",
         type=["pdf"],
         accept_multiple_files=False
+    )
+
+    st.markdown(
+        '</div>',
+        unsafe_allow_html=True
     )
 
     if uploaded:
@@ -414,7 +466,7 @@ elif st.session_state.page == "chat":
 
         chat_container = st.container(
             height=650,
-            border=False
+            border=True
         )
 
         with chat_container:
@@ -467,94 +519,112 @@ elif st.session_state.page == "chat":
 
         if question and question.strip():
 
+            clean_question = question.strip()
+
             st.session_state.chat_history.append(
                 {
                     "role": "user",
-                    "content": question.strip()
+                    "content": clean_question
                 }
             )
 
+            with chat_container:
 
-            try:
+                with st.chat_message("user"):
 
-                with st.spinner(
-                    "Searching your PDF..."
-                ):
+                    st.write(clean_question)
 
-                    response = requests.post(
-                        f"{FASTAPI_URL}/query",
-                        json={
-                            "question": question.strip(),
-                            "top_k": int(
-                                st.session_state.top_k
-                            ),
-                            "source_ids": (
-                                st.session_state.active_sources
-                            ),
-                            "session_id": (
-                                st.session_state.session_id
+                with st.chat_message("assistant"):
+
+                    try:
+
+                        with st.spinner(
+                            "Searching your PDF..."
+                        ):
+
+                            response = requests.post(
+                                f"{FASTAPI_URL}/query",
+                                json={
+                                    "question": clean_question,
+                                    "top_k": int(
+                                        st.session_state.top_k
+                                    ),
+                                    "source_ids": (
+                                        st.session_state.active_sources
+                                    ),
+                                    "session_id": (
+                                        st.session_state.session_id
+                                    )
+                                },
+                                timeout=120
                             )
-                        },
-                        timeout=120
-                    )
 
-                    response.raise_for_status()
+                            response.raise_for_status()
 
-                    output = response.json()
+                            output = response.json()
 
-                    answer = output.get(
-                        "answer",
-                        ""
-                    )
+                            answer = output.get(
+                                "answer",
+                                ""
+                            )
 
-                    sources = output.get(
-                        "sources",
-                        []
-                    )
+                            sources = output.get(
+                                "sources",
+                                []
+                            )
 
+                        st.write(
+                            answer or "(No answer generated)"
+                        )
 
-                st.session_state.chat_history.append(
-                    {
-                        "role": "assistant",
-                        "content": (
-                            answer
-                            or "(No answer generated)"
-                        ),
-                        "sources": sources
-                    }
-                )
+                        if sources:
 
+                            with st.expander(
+                                "Sources",
+                                expanded=False
+                            ):
 
-                st.rerun()
+                                for source in sources:
 
+                                    st.write(
+                                        f"📄 {source}"
+                                    )
 
-            except requests.exceptions.ConnectionError:
+                        st.session_state.chat_history.append(
+                            {
+                                "role": "assistant",
+                                "content": (
+                                    answer
+                                    or "(No answer generated)"
+                                ),
+                                "sources": sources
+                            }
+                        )
 
-                st.error(
-                    "Cannot connect to FastAPI server."
-                )
+                    except requests.exceptions.ConnectionError:
 
+                        st.error(
+                            "Cannot connect to FastAPI server."
+                        )
 
-            except requests.exceptions.Timeout:
+                    except requests.exceptions.Timeout:
 
-                st.error(
-                    "The request took too long. "
-                    "Please try again."
-                )
+                        st.error(
+                            "The request took too long. "
+                            "Please try again."
+                        )
 
+                    except requests.exceptions.HTTPError as e:
 
-            except requests.exceptions.HTTPError as e:
+                        st.error(
+                            f"API error: {e}"
+                        )
 
-                st.error(
-                    f"API error: {e}"
-                )
+                    except Exception as e:
 
-
-            except Exception as e:
-
-                st.error(
-                    f"Error: {str(e)}"
-                )
+                        st.error(
+                            f"Error: {str(e)}"
+                        )
 
 
         st.markdown(
