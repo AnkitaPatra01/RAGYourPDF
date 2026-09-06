@@ -6,6 +6,7 @@ import uuid
 import base64
 
 import streamlit as st
+import streamlit.components.v1 as components
 import inngest
 import requests
 from dotenv import load_dotenv
@@ -33,6 +34,10 @@ st.markdown("""
     }
 
     div[data-testid="stFileUploader"] {
+        max-width: 850px;
+        width: 100%;
+        margin: 0 auto;
+        box-sizing: border-box;
         border: 1px solid #d9e2ef;
         border-radius: 12px;
         padding: 30px;
@@ -106,6 +111,16 @@ st.markdown("""
 
     div[data-testid="stChatMessageContent"] span {
         color: #000000 !important;
+    }
+
+    div[data-testid="stChatMessage"]:has(div[data-testid="stChatMessageAvatarUser"]) {
+        background-color: #8b9099 !important;
+        border-radius: 12px !important;
+        padding: 8px 12px !important;
+    }
+
+    div[data-testid="stChatMessage"]:has(div[data-testid="stChatMessageAvatarUser"]) * {
+        color: #ffffff !important;
     }
 
     .pdf-viewer {
@@ -200,7 +215,13 @@ st.markdown("""
         max-width: 850px;
         margin: 45px auto 0 auto;
     }
-
+.st-key-right_chat_panel,
+.st-key-left_panel {
+    background-color: #f3f8ff;
+    border: 1px solid #cbdcf0;
+    border-radius: 14px;
+    padding: 18px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -308,19 +329,22 @@ def display_pdf(pdf_path):
             ).decode("utf-8")
 
         pdf_display = f"""
-        <div class="pdf-viewer">
+        <html>
+        <body style="margin:0; padding:0; overflow:hidden; background:#ffffff;">
             <iframe
                 src="data:application/pdf;base64,{base64_pdf}"
                 width="100%"
                 height="780px"
-                style="border:none;">
+                style="border:none; display:block;">
             </iframe>
-        </div>
+        </body>
+        </html>
         """
 
-        st.markdown(
+        components.html(
             pdf_display,
-            unsafe_allow_html=True
+            height=780,
+            scrolling=False
         )
 
     except Exception as e:
@@ -428,206 +452,202 @@ elif st.session_state.page == "chat":
     )
 
     with left_col:
+        with st.container(key="left_panel"):
+            if st.session_state.uploaded_pdf_name:
 
-        if st.session_state.uploaded_pdf_name:
+                st.markdown(
+                    '<div class="pdf-header">📄 ' +
+                    st.session_state.uploaded_pdf_name +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
 
+            if st.session_state.uploaded_pdf_path:
+
+                display_pdf(
+                    st.session_state.uploaded_pdf_path
+                )
+
+            else:
+
+                st.warning(
+                    "No PDF available for preview."
+                )
+
+    with right_col:
+
+        with st.container(key="right_chat_panel"):
             st.markdown(
-                '<div class="pdf-header">📄 ' +
-                st.session_state.uploaded_pdf_name +
+                '<div class="chat-header">'
+                '💬 Ask questions about your PDF'
                 '</div>',
                 unsafe_allow_html=True
             )
 
-        if st.session_state.uploaded_pdf_path:
-
-            display_pdf(
-                st.session_state.uploaded_pdf_path
-            )
-
-        else:
-
-            st.warning(
-                "No PDF available for preview."
-            )
-
-    with right_col:
-
-        st.markdown(
-            '<div class="chat-panel">',
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            '<div class="chat-header">'
-            '💬 Ask questions about your PDF'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        chat_container = st.container(
-            height=650,
-            border=True
-        )
-
-        with chat_container:
-
-            if not st.session_state.chat_history:
-
-                st.info(
-                    "Ask me anything about the uploaded PDF."
-                )
-
-
-            for message in st.session_state.chat_history:
-
-                with st.chat_message(
-                    message["role"]
-                ):
-
-                    st.write(
-                        message["content"]
-                    )
-
-                    if (
-                        message["role"] == "assistant"
-                        and message.get("sources")
-                    ):
-
-                        with st.expander(
-                            "Sources",
-                            expanded=False
-                        ):
-
-                            for source in message["sources"]:
-
-                                st.write(
-                                    f"📄 {source}"
-                                )
-
-        st.session_state.top_k = st.number_input(
-            "Chunks to retrieve",
-            min_value=1,
-            max_value=20,
-            value=st.session_state.top_k,
-            step=1
-        )
-
-        question = st.chat_input(
-            "Ask anything about your PDF..."
-        )
-
-
-        if question and question.strip():
-
-            clean_question = question.strip()
-
-            st.session_state.chat_history.append(
-                {
-                    "role": "user",
-                    "content": clean_question
-                }
+            chat_container = st.container(
+                height=650,
+                border=True
             )
 
             with chat_container:
 
-                with st.chat_message("user"):
+                if not st.session_state.chat_history:
 
-                    st.write(clean_question)
+                    st.info(
+                        "Ask me anything about the uploaded PDF."
+                    )
 
-                with st.chat_message("assistant"):
 
-                    try:
+                for message in st.session_state.chat_history:
 
-                        with st.spinner(
-                            "Searching your PDF..."
-                        ):
-
-                            response = requests.post(
-                                f"{FASTAPI_URL}/query",
-                                json={
-                                    "question": clean_question,
-                                    "top_k": int(
-                                        st.session_state.top_k
-                                    ),
-                                    "source_ids": (
-                                        st.session_state.active_sources
-                                    ),
-                                    "session_id": (
-                                        st.session_state.session_id
-                                    )
-                                },
-                                timeout=120
-                            )
-
-                            response.raise_for_status()
-
-                            output = response.json()
-
-                            answer = output.get(
-                                "answer",
-                                ""
-                            )
-
-                            sources = output.get(
-                                "sources",
-                                []
-                            )
+                    with st.chat_message(
+                        message["role"]
+                    ):
 
                         st.write(
-                            answer or "(No answer generated)"
+                            message["content"]
                         )
 
-                        if sources:
+                        if (
+                            message["role"] == "assistant"
+                            and message.get("sources")
+                        ):
 
                             with st.expander(
                                 "Sources",
                                 expanded=False
                             ):
 
-                                for source in sources:
+                                for source in message["sources"]:
 
                                     st.write(
                                         f"📄 {source}"
                                     )
 
-                        st.session_state.chat_history.append(
-                            {
-                                "role": "assistant",
-                                "content": (
-                                    answer
-                                    or "(No answer generated)"
-                                ),
-                                "sources": sources
-                            }
-                        )
+            st.session_state.top_k = st.number_input(
+                "Chunks to retrieve",
+                min_value=1,
+                max_value=20,
+                value=st.session_state.top_k,
+                step=1
+            )
 
-                    except requests.exceptions.ConnectionError:
-
-                        st.error(
-                            "Cannot connect to FastAPI server."
-                        )
-
-                    except requests.exceptions.Timeout:
-
-                        st.error(
-                            "The request took too long. "
-                            "Please try again."
-                        )
-
-                    except requests.exceptions.HTTPError as e:
-
-                        st.error(
-                            f"API error: {e}"
-                        )
-
-                    except Exception as e:
-
-                        st.error(
-                            f"Error: {str(e)}"
-                        )
+            question = st.chat_input(
+                "Ask anything about your PDF..."
+            )
 
 
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
+            if question and question.strip():
+
+                clean_question = question.strip()
+
+                st.session_state.chat_history.append(
+                    {
+                        "role": "user",
+                        "content": clean_question
+                    }
+                )
+
+                with chat_container:
+
+                    with st.chat_message("user"):
+
+                        st.write(clean_question)
+
+                    with st.chat_message("assistant"):
+
+                        try:
+
+                            with st.spinner(
+                                "Searching your PDF..."
+                            ):
+
+                                response = requests.post(
+                                    f"{FASTAPI_URL}/query",
+                                    json={
+                                        "question": clean_question,
+                                        "top_k": int(
+                                            st.session_state.top_k
+                                        ),
+                                        "source_ids": (
+                                            st.session_state.active_sources
+                                        ),
+                                        "session_id": (
+                                            st.session_state.session_id
+                                        )
+                                    },
+                                    timeout=120
+                                )
+
+                                response.raise_for_status()
+
+                                output = response.json()
+
+                                answer = output.get(
+                                    "answer",
+                                    ""
+                                )
+
+                                sources = output.get(
+                                    "sources",
+                                    []
+                                )
+
+                            st.write(
+                                answer or "(No answer generated)"
+                            )
+
+                            if sources:
+
+                                with st.expander(
+                                    "Sources",
+                                    expanded=False
+                                ):
+
+                                    for source in sources:
+
+                                        st.write(
+                                            f"📄 {source}"
+                                        )
+
+                            st.session_state.chat_history.append(
+                                {
+                                    "role": "assistant",
+                                    "content": (
+                                        answer
+                                        or "(No answer generated)"
+                                    ),
+                                    "sources": sources
+                                }
+                            )
+
+                        except requests.exceptions.ConnectionError:
+
+                            st.error(
+                                "Cannot connect to FastAPI server."
+                            )
+
+                        except requests.exceptions.Timeout:
+
+                            st.error(
+                                "The request took too long. "
+                                "Please try again."
+                            )
+
+                        except requests.exceptions.HTTPError as e:
+
+                            st.error(
+                                f"API error: {e}"
+                            )
+
+                        except Exception as e:
+
+                            st.error(
+                                f"Error: {str(e)}"
+                            )
+
+
+            st.markdown(
+                '</div>',
+                unsafe_allow_html=True
+            )
