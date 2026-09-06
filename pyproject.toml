@@ -17,7 +17,7 @@ dependencies = [
     "openai>=3.7.0",
     "python-dotenv>=1.2.3",
     "qdrant-client>=1.19.0",
-    "streamlit>=1.63.0",
+    "streamlit[pdf]>=1.63.0",
     "uvicorn>=0.52.4",
 ]
 

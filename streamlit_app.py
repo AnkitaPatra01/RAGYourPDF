@@ -6,7 +6,6 @@ import uuid
 import base64
 
 import streamlit as st
-import streamlit.components.v1 as components
 import inngest
 import requests
 from dotenv import load_dotenv
@@ -33,20 +32,10 @@ st.markdown("""
         color: #1f3b5b;
     }
 
-    div[data-testid="stFileUploader"] {
-        max-width: 850px;
-        width: 100%;
-        margin: 0 auto;
-        box-sizing: border-box;
-        border: 1px solid #d9e2ef;
-        border-radius: 12px;
-        padding: 30px;
-        background-color: #ffffff;
-    }
-
     .upload-container {
-        max-width: 650px;
-        margin: auto;
+        width: 100%;
+        max-width: none;
+        margin: 0 auto;
         padding-top: 70px;
     }
 
@@ -70,6 +59,9 @@ st.markdown("""
         font-weight: 600;
         color: #1e3a5f;
         margin-bottom: 15px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .chat-header {
@@ -92,6 +84,29 @@ st.markdown("""
         color: white;
     }
 
+    div[data-testid="stFileUploader"] {
+        border: 1px solid #d9e2ef;
+        border-radius: 12px;
+        padding: 22px;
+        background-color: #ffffff;
+    }
+
+    .st-key-upload_panel {
+        background-color: #f3f7fc;
+        border: 1px solid #cbdcf0;
+        border-radius: 14px;
+        padding: 18px;
+    }
+
+    .st-key-left_panel,
+    .st-key-right_chat_panel {
+        background-color: #f3f7fc;
+        border: 1px solid #cbdcf0;
+        border-radius: 14px;
+        padding: 14px;
+        min-height: 720px;
+    }
+
     div[data-testid="stChatInput"] {
         border-radius: 12px;
     }
@@ -101,14 +116,8 @@ st.markdown("""
         color: #000000 !important;
     }
 
-    div[data-testid="stChatMessageContent"] {
-        color: #000000 !important;
-    }
-
-    div[data-testid="stChatMessageContent"] p {
-        color: #000000 !important;
-    }
-
+    div[data-testid="stChatMessageContent"],
+    div[data-testid="stChatMessageContent"] p,
     div[data-testid="stChatMessageContent"] span {
         color: #000000 !important;
     }
@@ -123,22 +132,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    .pdf-viewer {
-        border: 1px solid #d9e2ef;
-        border-radius: 8px;
-        overflow: hidden;
-        background-color: white;
-    }
-
-    .chat-panel {
-        max-width: 700px;
-        margin: 0 auto;
-        background-color: #f8fafc;
-        border: 1px solid #dce3eb;
-        border-radius: 14px;
-        padding: 18px;
-    }
-
     .assistant-answer {
         background-color: #ffffff !important;
         color: #000000 !important;
@@ -150,30 +143,6 @@ st.markdown("""
 
     .assistant-answer * {
         color: #000000 !important;
-    }
-
-    .source-label {
-        color: #374151 !important;
-        font-size: 14px;
-        font-weight: 700;
-        margin-top: 12px;
-        margin-bottom: 6px;
-    }
-
-    .source-item {
-        background-color: #eef1f5 !important;
-        color: #1f2937 !important;
-        border-left: 4px solid #64748b;
-        padding: 10px 12px;
-        border-radius: 5px;
-        margin-bottom: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        word-break: break-word;
-    }
-
-    .source-item * {
-        color: #1f2937 !important;
     }
 
     div[data-testid="stExpander"] {
@@ -209,19 +178,6 @@ st.markdown("""
     div[data-testid="stExpander"] p {
         color: #1f2937 !important;
     }
-
-    .upload-wrapper {
-        width: 100%;
-        max-width: 850px;
-        margin: 45px auto 0 auto;
-    }
-.st-key-right_chat_panel,
-.st-key-left_panel {
-    background-color: #f3f8ff;
-    border: 1px solid #cbdcf0;
-    border-radius: 14px;
-    padding: 18px;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -322,30 +278,21 @@ def display_pdf(pdf_path):
 
     try:
 
-        with open(pdf_path, "rb") as pdf_file:
+        pdf_bytes = Path(pdf_path).read_bytes()
 
-            base64_pdf = base64.b64encode(
-                pdf_file.read()
-            ).decode("utf-8")
+        if hasattr(st, "pdf"):
 
-        pdf_display = f"""
-        <html>
-        <body style="margin:0; padding:0; overflow:hidden; background:#ffffff;">
-            <iframe
-                src="data:application/pdf;base64,{base64_pdf}"
-                width="100%"
-                height="780px"
-                style="border:none; display:block;">
-            </iframe>
-        </body>
-        </html>
-        """
+            st.pdf(
+                pdf_bytes,
+                height=780
+            )
 
-        components.html(
-            pdf_display,
-            height=780,
-            scrolling=False
-        )
+        else:
+
+            st.error(
+                "Your Streamlit version does not support the native PDF viewer. "
+                "Please upgrade Streamlit to use st.pdf."
+            )
 
     except Exception as e:
 
@@ -376,68 +323,60 @@ if st.session_state.page == "upload":
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        '<div class="upload-wrapper">',
-        unsafe_allow_html=True
-    )
+    _, upload_col, _ = st.columns([1, 3, 1])
 
-    uploaded = st.file_uploader(
-        "Upload your PDF",
-        type=["pdf"],
-        accept_multiple_files=False
-    )
+    with upload_col:
 
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
+        with st.container(key="upload_panel"):
 
-    if uploaded:
+            uploaded = st.file_uploader(
+                "Upload your PDF",
+                type=["pdf"],
+                accept_multiple_files=False
+            )
 
-        if st.button(
-            "Upload and Start Chat",
-            use_container_width=True
-        ):
+            if uploaded:
 
-            with st.spinner(
-                "Uploading and processing your PDF..."
-            ):
+                if st.button(
+                    "Upload and Start Chat",
+                    use_container_width=True
+                ):
 
-                path = save_uploaded_pdf(uploaded)
+                    with st.spinner(
+                        "Uploading and processing your PDF..."
+                    ):
 
-                source_id = (
-                    f"{st.session_state.session_id}:{uploaded.name}"
-                )
+                        path = save_uploaded_pdf(uploaded)
 
-                run_async(
-                    send_rag_ingest_event(
-                        path,
-                        source_id,
-                        st.session_state.session_id
-                    )
-                )
+                        source_id = (
+                            f"{st.session_state.session_id}:{uploaded.name}"
+                        )
 
-                if source_id not in st.session_state.active_sources:
+                        run_async(
+                            send_rag_ingest_event(
+                                path,
+                                source_id,
+                                st.session_state.session_id
+                            )
+                        )
 
-                    st.session_state.active_sources.append(
-                        source_id
-                    )
+                        if source_id not in st.session_state.active_sources:
 
-                st.session_state.uploaded_pdf_path = str(
-                    path
-                )
+                            st.session_state.active_sources.append(
+                                source_id
+                            )
 
-                st.session_state.uploaded_pdf_name = (
-                    uploaded.name
-                )
+                        st.session_state.uploaded_pdf_path = str(path)
 
-                st.session_state.chat_history = []
+                        st.session_state.uploaded_pdf_name = uploaded.name
 
-                time.sleep(0.5)
+                        st.session_state.chat_history = []
 
-            st.session_state.page = "chat"
+                        time.sleep(0.5)
 
-            st.rerun()
+                    st.session_state.page = "chat"
+
+                    st.rerun()
 
     st.markdown(
         '</div>',
@@ -645,9 +584,3 @@ elif st.session_state.page == "chat":
                             st.error(
                                 f"Error: {str(e)}"
                             )
-
-
-            st.markdown(
-                '</div>',
-                unsafe_allow_html=True
-            )
