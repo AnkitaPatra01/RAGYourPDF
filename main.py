@@ -1,22 +1,23 @@
 import logging
-from fastapi import FastAPI
+import uuid
+import os
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
 from pydantic import BaseModel
 import inngest
 import inngest.fast_api
-#from inngest.experimental import ai
 from dotenv import load_dotenv
-import uuid
-import os
 import ollama
-import datetime
 
 from data_loader import load_and_chunk_pdf, embed_texts
 from vector_db import QdrantStorage
-
-from custom_types import RAGChunkAndSrc, RAGQueryResult, RAGSearchResult, RAGSearchResult, RAGUpsertResult
+from custom_types import RAGChunkAndSrc, RAGSearchResult, RAGUpsertResult
 
 load_dotenv()
+
+SESSION_EXPIRY_MINUTES = int(
+    os.getenv("SESSION_EXPIRY_MINUTES", "5")
+)
 
 inngest_client = inngest.Inngest(
     app_id="rag_app",
@@ -24,6 +25,12 @@ inngest_client = inngest.Inngest(
     is_production=False,
     serializer=inngest.PydanticSerializer()
 )
+
+def cleanup_expired_data():
+    try:
+        QdrantStorage().delete_expired_sessions()
+    except Exception as e:
+        print(f"Cleanup warning: {e}")
 
 @inngest_client.create_function(
     fn_id="RAG: Ingest PDF",
@@ -34,7 +41,9 @@ async def rag_ingest_pdf(ctx: inngest.Context):
     def _load(ctx: inngest.Context) -> RAGChunkAndSrc:
         pdf_path = ctx.event.data["pdf_path"]
         source_id = ctx.event.data.get("source_id", pdf_path)
+
         chunks = load_and_chunk_pdf(pdf_path)
+
         return RAGChunkAndSrc(
             chunks=chunks,
             source_id=source_id
@@ -43,46 +52,145 @@ async def rag_ingest_pdf(ctx: inngest.Context):
     def _upsert(chunk_and_src: RAGChunkAndSrc) -> RAGUpsertResult:
         chunks = chunk_and_src.chunks
         source_id = chunk_and_src.source_id
-        vecs = embed_texts(chunks)
-        ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_id} : {i}")) for i in range(len(chunks))]
-        payloads = [{"source" : source_id, "text": chunks[i]} for i in range(len(chunks))]
-        QdrantStorage().upsert(ids,vecs, payloads)
-        return RAGUpsertResult(ingested=len(chunks))
+        
+        session_id = ctx.event.data.get("session_id")
 
-    chunk_and_src = await ctx.step.run("load-and-chunk", lambda: _load(ctx), output_type=RAGChunkAndSrc)
-    ingested = await ctx.step.run("embed-and-upsert", lambda: _upsert(chunk_and_src), output_type=RAGUpsertResult)
+        cleanup_expired_data()
+
+        vecs = embed_texts(chunks)
+
+        ids = [
+            str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{source_id}:{i}"
+                )
+            )
+            for i in range(len(chunks))
+        ]
+
+        expires_at = (
+            datetime.now(timezone.utc).timestamp()
+            + SESSION_EXPIRY_MINUTES * 60
+        )
+
+        payloads = [
+            {
+                "source": source_id,
+                "session_id": session_id,
+                "text": chunks[i],
+                "expires_at": expires_at
+            }
+            for i in range(len(chunks))
+        ]
+
+        QdrantStorage().upsert(
+            ids,
+            vecs,
+            payloads
+        )
+
+        return RAGUpsertResult(
+            ingested=len(chunks)
+        )
+
+    chunk_and_src = await ctx.step.run(
+        "load-and-chunk",
+        lambda: _load(ctx),
+        output_type=RAGChunkAndSrc
+    )
+
+    ingested = await ctx.step.run(
+        "embed-and-upsert",
+        lambda: _upsert(chunk_and_src),
+        output_type=RAGUpsertResult
+    )
+
     return ingested.model_dump()
+
 
 @inngest_client.create_function(
     fn_id="RAG: Query PDF",
     trigger=inngest.TriggerEvent(event="rag/query_pdf_ai")
 )
+
 async def rag_query_pdf_ai(ctx: inngest.Context):
-    def _search(question: str, top_k: int = 5) -> RAGSearchResult:
+
+    def _search(
+        question: str,
+        top_k: int = 5,
+        source_ids: list[str] | None = None
+    ) -> RAGSearchResult:
+
         query_vec = embed_texts([question])[0]
-        store = QdrantStorage()
-        found = store.search(query_vec, top_k)
-        return RAGSearchResult(contexts=found["contexts"], sources=found["sources"])
+
+        found = QdrantStorage().search(
+            query_vector=query_vec,
+            top_k=top_k,
+            source_ids=source_ids
+        )
+
+        return RAGSearchResult(
+            contexts=found["contexts"],
+            sources=found["sources"]
+        )
 
     question = ctx.event.data["question"]
-    top_k = ctx.event.data.get("top_k", 5)
-    found = await ctx.step.run("embed-and -search", lambda: _search(question, top_k), output_type=RAGSearchResult)
 
-    context_block = "\n\n".join(f"- {c}" for c in found.contexts)
+    top_k = ctx.event.data.get(
+        "top_k",
+        5
+    )
+
+    source_ids = ctx.event.data.get(
+        "source_ids",
+        []
+    )
+
+    found = await ctx.step.run(
+        "embed-and-search",
+        lambda: _search(
+            question,
+            top_k,
+            source_ids
+        ),
+        output_type=RAGSearchResult
+    )
+
+    if not found.contexts:
+        return {
+            "answer": "I could not find relevant information in the uploaded PDF.",
+            "sources": [],
+            "num_contexts": 0
+        }
+
+    context_block = "\n\n".join(
+        f"- {context}"
+        for context in found.contexts
+    )
+
     user_content = (
         "Use the following context to answer the question.\n\n"
         f"Context:\n{context_block}\n\n"
-        f"Question: {question}\n"
-        "Answer concisely using the context above."
+        f"Question: {question}\n\n"
+        "Answer concisely using only the provided context."
     )
 
     def _generate_answer():
+
         response = ollama.chat(
-            model="llama3.2",
+            model=os.getenv(
+                "OLLAMA_CHAT_MODEL",
+                "llama3.2"
+            ),
             messages=[
                 {
                     "role": "system",
-                    "content": "You answer questions using only the provided context."
+                    "content": (
+                        "You answer questions using only "
+                        "the provided context. Do not use "
+                        "information from outside the context."
+                    )
                 },
                 {
                     "role": "user",
@@ -100,7 +208,13 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
         "generate-answer",
         _generate_answer
     )
-    return {"answer": answer, "sources":found.sources, "num_contexts":len(found.contexts)}
+
+    return {
+        "answer": answer,
+        "sources": found.sources,
+        "num_contexts": len(found.contexts)
+    }
+
 
 app = FastAPI()
 
@@ -108,19 +222,85 @@ app = FastAPI()
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 5
+    source_ids: list[str] | None = None
+    session_id: str | None = None
+
+
+class CleanupRequest(BaseModel):
+    source_ids: list[str]
+
+
+class HeartbeatRequest(BaseModel):
+    source_ids: list[str]
+    session_id: str | None = None
+
+
+@app.post("/heartbeat")
+async def heartbeat(request: HeartbeatRequest):
+
+    if not request.source_ids or not request.session_id:
+        return {"message": "No active session"}
+
+    cleanup_expired_data()
+
+    expires_at = (
+        datetime.now(timezone.utc).timestamp()
+        + SESSION_EXPIRY_MINUTES * 60
+    )
+
+    QdrantStorage().refresh_session(
+        request.session_id,
+        expires_at
+    )
+
+    return {"message": "Session refreshed"}
 
 
 @app.post("/query")
 async def query_pdf(request: QueryRequest):
 
-    query_vec = embed_texts([request.question])[0]
+    cleanup_expired_data()
 
-    store = QdrantStorage()
+    if not request.source_ids:
 
-    found = store.search(
-        query_vec,
-        request.top_k
+        return {
+            "answer": "No PDFs are currently loaded in this session.",
+            "sources": [],
+            "num_contexts": 0
+        }
+
+    if request.session_id:
+
+        expires_at = (
+            datetime.now(timezone.utc).timestamp()
+            + SESSION_EXPIRY_MINUTES * 60
+        )
+
+        QdrantStorage().refresh_session(
+            request.session_id,
+            expires_at
+        )
+
+    query_vec = embed_texts(
+        [request.question]
+    )[0]
+
+    found = QdrantStorage().search(
+        query_vector=query_vec,
+        top_k=request.top_k,
+        source_ids=request.source_ids
     )
+
+    if not found["contexts"]:
+
+        return {
+            "answer": (
+                "I could not find relevant information "
+                "in the uploaded PDF."
+            ),
+            "sources": [],
+            "num_contexts": 0
+        }
 
     context_block = "\n\n".join(
         f"- {context}"
@@ -131,15 +311,23 @@ async def query_pdf(request: QueryRequest):
         "Use the following context to answer the question.\n\n"
         f"Context:\n{context_block}\n\n"
         f"Question: {request.question}\n\n"
-        "Answer concisely using only the provided context."
+        "Answer concisely using only the provided context. "
+        "Do not use any knowledge outside the provided context."
     )
 
     response = ollama.chat(
-        model=os.getenv("OLLAMA_CHAT_MODEL", "llama3.2"),
+        model=os.getenv(
+            "OLLAMA_CHAT_MODEL",
+            "llama3.2"
+        ),
         messages=[
             {
                 "role": "system",
-                "content": "You answer questions using only the provided context."
+                "content": (
+                    "You answer questions using only "
+                    "the provided context. Never use "
+                    "outside knowledge."
+                )
             },
             {
                 "role": "user",
@@ -158,6 +346,19 @@ async def query_pdf(request: QueryRequest):
         "sources": found["sources"],
         "num_contexts": len(found["contexts"])
     }
+
+
+@app.delete("/cleanup")
+async def cleanup_session(request: CleanupRequest):
+
+    if not request.source_ids:
+        return {"message": "Nothing to clean"}
+
+    QdrantStorage().delete_sources(
+        request.source_ids
+    )
+
+    return {"message": "Session data deleted"}
 
 
 inngest.fast_api.serve(
