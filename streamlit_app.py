@@ -103,8 +103,11 @@ st.markdown("""
         background-color: #f3f7fc;
         border: 1px solid #cbdcf0;
         border-radius: 14px;
-        padding: 14px;
+        padding: 14px 21px;
         min-height: 720px;
+        box-sizing: border-box;
+        box-shadow: 2px 2px 2px 2px #9eaca7;
+        overflow: hidden;
     }
 
     div[data-testid="stChatInput"] {
