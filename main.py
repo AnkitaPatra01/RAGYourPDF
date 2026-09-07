@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 import os
@@ -219,6 +220,17 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
 app = FastAPI()
 
 
+async def periodic_cleanup():
+    while True:
+        cleanup_expired_data()
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def start_periodic_cleanup():
+    asyncio.create_task(periodic_cleanup())
+
+
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 5
@@ -227,7 +239,7 @@ class QueryRequest(BaseModel):
 
 
 class CleanupRequest(BaseModel):
-    source_ids: list[str]
+    session_id: str
 
 
 class HeartbeatRequest(BaseModel):
@@ -351,14 +363,22 @@ async def query_pdf(request: QueryRequest):
 @app.delete("/cleanup")
 async def cleanup_session(request: CleanupRequest):
 
-    if not request.source_ids:
-        return {"message": "Nothing to clean"}
+    if not request.session_id:
+        return {"message": "No active session"}
 
-    QdrantStorage().delete_sources(
-        request.source_ids
+    QdrantStorage().delete_session(
+        request.session_id
     )
 
     return {"message": "Session data deleted"}
+
+
+@app.delete("/cleanup-all")
+async def cleanup_all_sessions():
+
+    QdrantStorage().delete_all()
+
+    return {"message": "All session data deleted"}
 
 
 inngest.fast_api.serve(

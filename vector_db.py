@@ -180,6 +180,14 @@ class QdrantStorage:
         )
 
 
+    def delete_all(self):
+
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=Filter()
+        )
+
+
     def delete_expired_sessions(self):
 
         now = datetime.now(

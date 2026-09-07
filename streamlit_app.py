@@ -185,7 +185,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "session_id" not in st.session_state:
+
+    response = requests.delete(
+        f"{FASTAPI_URL}/cleanup-all",
+        timeout=10
+    )
+
+    response.raise_for_status()
+
+    st.session_state.clear()
+
     st.session_state.session_id = str(uuid.uuid4())
+    st.session_state.active_sources = []
+    st.session_state.page = "upload"
+    st.session_state.uploaded_pdf_path = None
+    st.session_state.uploaded_pdf_name = None
+    st.session_state.chat_history = []
+    st.session_state.top_k = 5
 
 if "active_sources" not in st.session_state:
     st.session_state.active_sources = []
@@ -277,6 +293,22 @@ def send_heartbeat():
         pass
 
 
+def cleanup_current_session():
+
+    try:
+
+        requests.delete(
+            f"{FASTAPI_URL}/cleanup",
+            json={
+                "session_id": st.session_state.session_id
+            },
+            timeout=10
+        )
+
+    except Exception:
+        pass
+
+
 def display_pdf(pdf_path):
 
     try:
@@ -348,6 +380,13 @@ if st.session_state.page == "upload":
                     with st.spinner(
                         "Uploading and processing your PDF..."
                     ):
+
+                        if st.session_state.active_sources:
+                            cleanup_current_session()
+
+                            st.session_state.session_id = str(uuid.uuid4())
+                            st.session_state.active_sources = []
+                            st.session_state.chat_history = []
 
                         path = save_uploaded_pdf(uploaded)
 
