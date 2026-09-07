@@ -84,6 +84,13 @@ st.markdown("""
         color: white;
     }
 
+    .st-key-upload_start_button button {
+        min-height: 48px !important;
+        font-size: 17px !important;
+        font-weight: 600 !important;
+        padding: 10px 18px !important;
+    }
+
     div[data-testid="stFileUploader"] {
         border: 1px solid #d9e2ef;
         border-radius: 12px;
@@ -104,10 +111,39 @@ st.markdown("""
         border: 1px solid #cbdcf0;
         border-radius: 14px;
         padding: 14px 21px;
-        min-height: 720px;
+        height: 800px;
         box-sizing: border-box;
         box-shadow: 2px 2px 2px 2px #9eaca7;
         overflow: hidden;
+    }
+
+    div[data-testid="stPopover"] button {
+        min-width: 52px !important;
+        width: 52px !important;
+        height: 48px !important;
+        padding: 0 !important;
+        background-color: #dceaf8 !important;
+        color: #1e3a5f !important;
+        border: 1px solid #cbdcf0 !important;
+        border-radius: 10px !important;
+        box-shadow: none !important;
+    }
+
+    div[data-testid="stPopover"] button:hover,
+    div[data-testid="stPopover"] button:focus,
+    div[data-testid="stPopover"] button:active {
+        background-color: #dceaf8 !important;
+        color: #1e3a5f !important;
+        border: 1px solid #cbdcf0 !important;
+        box-shadow: none !important;
+    }
+
+    div[data-testid="stPopover"] button span,
+    div[data-testid="stPopover"] button p,
+    div[data-testid="stPopover"] button svg {
+        color: #1e3a5f !important;
+        fill: #1e3a5f !important;
+        font-size: 27px !important;
     }
 
     div[data-testid="stChatInput"] {
@@ -372,53 +408,58 @@ if st.session_state.page == "upload":
 
             if uploaded:
 
-                if st.button(
-                    "Upload and Start Chat",
-                    use_container_width=True
-                ):
+                _, button_col, _ = st.columns([1.5, 0.8, 1.5])
 
-                    with st.spinner(
-                        "Uploading and processing your PDF..."
+                with button_col:
+
+                    if st.button(
+                        "Upload and Start Chat",
+                        key="upload_start_button",
+                        use_container_width=True
                     ):
 
-                        if st.session_state.active_sources:
-                            cleanup_current_session()
+                        with st.spinner(
+                            "Uploading and processing your PDF..."
+                        ):
 
-                            st.session_state.session_id = str(uuid.uuid4())
-                            st.session_state.active_sources = []
+                            if st.session_state.active_sources:
+                                cleanup_current_session()
+
+                                st.session_state.session_id = str(uuid.uuid4())
+                                st.session_state.active_sources = []
+                                st.session_state.chat_history = []
+
+                            path = save_uploaded_pdf(uploaded)
+
+                            source_id = (
+                                f"{st.session_state.session_id}:{uploaded.name}"
+                            )
+
+                            run_async(
+                                send_rag_ingest_event(
+                                    path,
+                                    source_id,
+                                    st.session_state.session_id
+                                )
+                            )
+
+                            if source_id not in st.session_state.active_sources:
+
+                                st.session_state.active_sources.append(
+                                    source_id
+                                )
+
+                            st.session_state.uploaded_pdf_path = str(path)
+
+                            st.session_state.uploaded_pdf_name = uploaded.name
+
                             st.session_state.chat_history = []
 
-                        path = save_uploaded_pdf(uploaded)
+                            time.sleep(0.5)
 
-                        source_id = (
-                            f"{st.session_state.session_id}:{uploaded.name}"
-                        )
+                        st.session_state.page = "chat"
 
-                        run_async(
-                            send_rag_ingest_event(
-                                path,
-                                source_id,
-                                st.session_state.session_id
-                            )
-                        )
-
-                        if source_id not in st.session_state.active_sources:
-
-                            st.session_state.active_sources.append(
-                                source_id
-                            )
-
-                        st.session_state.uploaded_pdf_path = str(path)
-
-                        st.session_state.uploaded_pdf_name = uploaded.name
-
-                        st.session_state.chat_history = []
-
-                        time.sleep(0.5)
-
-                    st.session_state.page = "chat"
-
-                    st.rerun()
+                        st.rerun()
 
     st.markdown(
         '</div>',
@@ -458,12 +499,31 @@ elif st.session_state.page == "chat":
     with right_col:
 
         with st.container(key="right_chat_panel"):
-            st.markdown(
-                '<div class="chat-header">'
-                '💬 Ask questions about your PDF'
-                '</div>',
-                unsafe_allow_html=True
+            header_col, settings_col = st.columns(
+                [12, 1],
+                vertical_alignment="center"
             )
+
+            with header_col:
+                st.markdown(
+                    '<div class="chat-header">'
+                    '💬 Ask questions about your PDF'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+
+            with settings_col:
+                with st.popover(
+                    ":material/settings:",
+                    help="Retrieval settings"
+                ):
+                    st.session_state.top_k = st.number_input(
+                        "Chunks to retrieve",
+                        min_value=1,
+                        max_value=20,
+                        value=st.session_state.top_k,
+                        step=1
+                    )
 
             chat_container = st.container(
                 height=650,
@@ -504,14 +564,6 @@ elif st.session_state.page == "chat":
                                     st.write(
                                         f"📄 {source}"
                                     )
-
-            st.session_state.top_k = st.number_input(
-                "Chunks to retrieve",
-                min_value=1,
-                max_value=20,
-                value=st.session_state.top_k,
-                step=1
-            )
 
             question = st.chat_input(
                 "Ask anything about your PDF..."
