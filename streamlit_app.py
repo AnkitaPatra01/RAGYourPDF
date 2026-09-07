@@ -162,9 +162,18 @@ st.markdown("""
         width: 52px !important;
     }
 
-    div[data-testid="stChatInput"] {
-        border-radius: 12px;
-    }
+   div[data-testid="stChatInput"] {
+    border-radius: 12px !important;
+    min-height: 68px !important;
+    margin-top: 8px !important;
+}
+
+div[data-testid="stChatInput"] textarea {
+    min-height: 46px !important;
+    font-size: 16px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+}
 
     div[data-testid="stChatMessage"] {
         border-radius: 12px;
