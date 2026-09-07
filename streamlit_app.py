@@ -105,16 +105,23 @@ st.markdown("""
         padding: 18px;
     }
 
-    .st-key-left_panel,
-    .st-key-right_chat_panel {
-        background-color: #f3f7fc;
-        border: 1px solid #cbdcf0;
-        border-radius: 14px;
-        padding: 14px 21px;
-        height: 800px;
-        box-sizing: border-box;
+    div[class*="st-key-left_panel"],
+    div[class*="st-key-right_chat_panel"] {
+        background-color: #f3f7fc !important;
+        border: 1px solid #cbdcf0 !important;
+        border-radius: 14px !important;
+        padding: 14px 21px !important;
+        height: 800px !important;
+        min-height: 850px !important;
+        max-height: 850px !important;
+        box-sizing: border-box !important;
         box-shadow: 2px 2px 2px 2px #9eaca7;
-        overflow: hidden;
+        overflow: hidden !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(> div [class*="st-key-left_panel"]),
+    div[data-testid="stHorizontalBlock"]:has(> div [class*="st-key-right_chat_panel"]) {
+        align-items: stretch;
     }
 
     div[data-testid="stPopover"] button {
@@ -144,6 +151,15 @@ st.markdown("""
         color: #1e3a5f !important;
         fill: #1e3a5f !important;
         font-size: 27px !important;
+    }
+
+    div[data-testid="stPopover"] button svg:last-child:not(:only-child) {
+        display: none !important;
+    }
+
+    div[data-testid="stPopover"] button {
+        min-width: 52px !important;
+        width: 52px !important;
     }
 
     div[data-testid="stChatInput"] {
