@@ -283,13 +283,6 @@ if "top_k" not in st.session_state:
     st.session_state.top_k = 5
 
 
-@st.cache_resource
-def get_inngest_client() -> inngest.Inngest:
-    return inngest.Inngest(
-        app_id="rag_app",
-        is_production=False
-    )
-
 def save_uploaded_pdf(file) -> Path:
     uploads_dir = Path("uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -308,7 +301,10 @@ async def send_rag_ingest_event(
     session_id: str
 ) -> None:
 
-    client = get_inngest_client()
+    client = inngest.Inngest(
+        app_id="rag_app",
+        is_production=False
+    )
 
     await client.send(
         inngest.Event(
@@ -323,15 +319,7 @@ async def send_rag_ingest_event(
 
 
 def run_async(coro):
-    loop = asyncio.new_event_loop()
-
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
+    return asyncio.run(coro)
 
 
 def send_heartbeat():
