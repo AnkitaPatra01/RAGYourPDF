@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: ragyourpdf-backend:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    image: ragyourpdf-streamlit:latest
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - FASTAPI_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
