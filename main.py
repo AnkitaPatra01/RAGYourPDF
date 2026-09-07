@@ -4,6 +4,7 @@ import uuid
 import os
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import inngest
 import inngest.fast_api
@@ -55,7 +56,7 @@ def generate_answer(user_content: str) -> str:
     return data["choices"][0]["message"]["content"]
 
 SESSION_EXPIRY_MINUTES = int(
-    os.getenv("SESSION_EXPIRY_MINUTES", "5")
+    os.getenv("SESSION_EXPIRY_MINUTES", "5") or "5"
 )
 
 inngest_client = inngest.Inngest(
@@ -70,6 +71,18 @@ def cleanup_expired_data():
         QdrantStorage().delete_expired_sessions()
     except Exception as e:
         print(f"Cleanup warning: {e}")
+
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @inngest_client.create_function(
     fn_id="RAG: Ingest PDF",
@@ -230,9 +243,6 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
     }
 
 
-app = FastAPI()
-
-
 async def periodic_cleanup():
     while True:
         cleanup_expired_data()
@@ -266,25 +276,6 @@ class IngestRequest(BaseModel):
     session_id: str | None = None
 
 
-@app.post("/ingest")
-async def ingest(request: IngestRequest):
-    try:
-        await inngest_client.send(
-            inngest.Event(
-                name="rag/ingest_pdf",
-                data={
-                    "pdf_path": request.pdf_path,
-                    "source_id": request.source_id,
-                    "session_id": request.session_id,
-                },
-            )
-        )
-
-        return {"message": "Ingest event queued"}
-
-    except Exception as e:
-        logging.getLogger("uvicorn.error").warning(f"Failed to queue ingest event: {e}")
-        return {"message": "Failed to queue ingest event (see server logs)"}
 @app.post("/heartbeat")
 async def heartbeat(request: HeartbeatRequest):
 
@@ -374,6 +365,27 @@ async def query_pdf(request: QueryRequest):
     }
 
 
+@app.post("/ingest")
+async def ingest(request: IngestRequest):
+    try:
+        await inngest_client.send(
+            inngest.Event(
+                name="rag/ingest_pdf",
+                data={
+                    "pdf_path": request.pdf_path,
+                    "source_id": request.source_id,
+                    "session_id": request.session_id,
+                },
+            )
+        )
+
+        return {"message": "Ingest event queued"}
+
+    except Exception as e:
+        logging.getLogger("uvicorn.error").warning(f"Failed to queue ingest event: {e}")
+        return {"message": "Failed to queue ingest event (see server logs)"}
+
+
 @app.delete("/cleanup")
 async def cleanup_session(request: CleanupRequest):
 
@@ -386,7 +398,6 @@ async def cleanup_session(request: CleanupRequest):
         )
         return {"message": "Session data deleted"}
     except Exception as e:
-        # Log and return a safe response so UI doesn't error out
         logging.getLogger("uvicorn.error").warning(f"Failed to delete session: {e}")
         return {"message": "Failed to delete session (see server logs)"}
 
