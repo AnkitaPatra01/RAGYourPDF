@@ -8,13 +8,51 @@ from pydantic import BaseModel
 import inngest
 import inngest.fast_api
 from dotenv import load_dotenv
-import ollama
+import requests
 
 from data_loader import load_and_chunk_pdf, embed_texts
 from vector_db import QdrantStorage
 from custom_types import RAGChunkAndSrc, RAGSearchResult, RAGUpsertResult
 
 load_dotenv()
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_CHAT_MODEL = os.getenv(
+    "OPENROUTER_CHAT_MODEL",
+    "openrouter/free"
+)
+
+def generate_answer(user_content: str) -> str:
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": OPENROUTER_CHAT_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You answer questions using only "
+                        "the provided context. Never use "
+                        "outside knowledge."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": user_content
+                }
+            ],
+            "temperature": 0.2
+        },
+        timeout=120
+    )
+
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
 
 SESSION_EXPIRY_MINUTES = int(
     os.getenv("SESSION_EXPIRY_MINUTES", "5")
@@ -178,32 +216,7 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
     )
 
     def _generate_answer():
-
-        response = ollama.chat(
-            model=os.getenv(
-                "OLLAMA_CHAT_MODEL",
-                "llama3.2"
-            ),
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You answer questions using only "
-                        "the provided context. Do not use "
-                        "information from outside the context."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": user_content
-                }
-            ],
-            options={
-                "temperature": 0.2
-            }
-        )
-
-        return response["message"]["content"]
+        return generate_answer(user_content)
 
     answer = await ctx.step.run(
         "generate-answer",
@@ -327,31 +340,7 @@ async def query_pdf(request: QueryRequest):
         "Do not use any knowledge outside the provided context."
     )
 
-    response = ollama.chat(
-        model=os.getenv(
-            "OLLAMA_CHAT_MODEL",
-            "llama3.2"
-        ),
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You answer questions using only "
-                    "the provided context. Never use "
-                    "outside knowledge."
-                )
-            },
-            {
-                "role": "user",
-                "content": user_content
-            }
-        ],
-        options={
-            "temperature": 0.2
-        }
-    )
-
-    answer = response["message"]["content"]
+    answer = generate_answer(user_content)
 
     return {
         "answer": answer,
