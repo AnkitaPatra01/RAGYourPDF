@@ -260,6 +260,31 @@ class HeartbeatRequest(BaseModel):
     session_id: str | None = None
 
 
+class IngestRequest(BaseModel):
+    pdf_path: str
+    source_id: str
+    session_id: str | None = None
+
+
+@app.post("/ingest")
+async def ingest(request: IngestRequest):
+    try:
+        await inngest_client.send(
+            inngest.Event(
+                name="rag/ingest_pdf",
+                data={
+                    "pdf_path": request.pdf_path,
+                    "source_id": request.source_id,
+                    "session_id": request.session_id,
+                },
+            )
+        )
+
+        return {"message": "Ingest event queued"}
+
+    except Exception as e:
+        logging.getLogger("uvicorn.error").warning(f"Failed to queue ingest event: {e}")
+        return {"message": "Failed to queue ingest event (see server logs)"}
 @app.post("/heartbeat")
 async def heartbeat(request: HeartbeatRequest):
 

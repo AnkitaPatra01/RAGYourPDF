@@ -6,7 +6,7 @@ import uuid
 import base64
 
 import streamlit as st
-import inngest
+import httpx
 import requests
 from dotenv import load_dotenv
 
@@ -300,22 +300,17 @@ async def send_rag_ingest_event(
     source_id: str,
     session_id: str
 ) -> None:
-
-    client = inngest.Inngest(
-        app_id="rag_app",
-        is_production=False
-    )
-
-    await client.send(
-        inngest.Event(
-            name="rag/ingest_pdf",
-            data={
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{FASTAPI_URL}/ingest",
+            json={
                 "pdf_path": str(pdf_path.resolve()),
                 "source_id": source_id,
-                "session_id": session_id
+                "session_id": session_id,
             },
         )
-    )
+
+        resp.raise_for_status()
 
 
 def run_async(coro):
