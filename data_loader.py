@@ -1,15 +1,17 @@
 from pathlib import Path
 import os
+import requests
 from dotenv import load_dotenv
-
-import ollama
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.readers.file import PDFReader
 
 load_dotenv()
 
-EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-EMBED_DIM = int(os.getenv("QDRANT_VECTOR_DIM", "768"))
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+EMBED_MODEL = os.getenv(
+    "OPENROUTER_EMBED_MODEL",
+    "nvidia/nemotron-3-embed-1b:free"
+)
 
 splitter = SentenceSplitter(
     chunk_size=1000,
@@ -35,9 +37,26 @@ def load_and_chunk_pdf(path: str):
     return chunks
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    response = ollama.embed(
-        model=EMBED_MODEL,
-        input=texts
+    response = requests.post(
+        "https://openrouter.ai/api/v1/embeddings",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": EMBED_MODEL,
+            "input": texts
+        },
+        timeout=120
     )
 
-    return response["embeddings"]
+    response.raise_for_status()
+
+    data = response.json()["data"]
+
+    data.sort(key=lambda item: item["index"])
+
+    return [
+        item["embedding"]
+        for item in data
+    ]
