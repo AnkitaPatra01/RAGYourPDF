@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
-from qdrant_client.models import (VectorParams, Distance, PointStruct, Filter,FieldCondition, MatchAny, MatchValue, Range)
+from qdrant_client.models import (VectorParams, Distance, PointStruct, Filter, FieldCondition, MatchAny, MatchValue, Range, PayloadSchemaType)
 
 load_dotenv()
 
@@ -12,10 +12,16 @@ class QdrantStorage:
         url = url or os.getenv("QDRANT_URL")
         collection = collection or os.getenv("QDRANT_COLLECTION")
         dim = dim or int(os.getenv("QDRANT_VECTOR_DIM"))
-        self.client = QdrantClient(
-            url=url,
-            timeout=30
-        )
+        api_key = os.getenv("QDRANT_API_KEY")
+        client_kwargs = {
+            "url": url,
+            "timeout": 30,
+        }
+
+        if api_key:
+            client_kwargs["api_key"] = api_key
+
+        self.client = QdrantClient(**client_kwargs)
 
         self.collection = collection
 
@@ -26,6 +32,33 @@ class QdrantStorage:
                     size=dim,
                     distance=Distance.COSINE
                 )
+            )
+
+        collection_info = self.client.get_collection(
+            collection_name=self.collection
+        )
+
+        payload_schema = collection_info.payload_schema or {}
+
+        if "expires_at" not in payload_schema:
+            self.client.create_payload_index(
+                collection_name=self.collection,
+                field_name="expires_at",
+                field_schema=PayloadSchemaType.FLOAT
+            )
+
+        if "source" not in payload_schema:
+            self.client.create_payload_index(
+                collection_name=self.collection,
+                field_name="source",
+                field_schema=PayloadSchemaType.KEYWORD
+            )
+
+        if "session_id" not in payload_schema:
+            self.client.create_payload_index(
+                collection_name=self.collection,
+                field_name="session_id",
+                field_schema=PayloadSchemaType.KEYWORD
             )
 
     def upsert(self, ids, vectors, payloads):

@@ -355,19 +355,26 @@ async def cleanup_session(request: CleanupRequest):
     if not request.session_id:
         return {"message": "No active session"}
 
-    QdrantStorage().delete_session(
-        request.session_id
-    )
-
-    return {"message": "Session data deleted"}
+    try:
+        QdrantStorage().delete_session(
+            request.session_id
+        )
+        return {"message": "Session data deleted"}
+    except Exception as e:
+        # Log and return a safe response so UI doesn't error out
+        logging.getLogger("uvicorn.error").warning(f"Failed to delete session: {e}")
+        return {"message": "Failed to delete session (see server logs)"}
 
 
 @app.delete("/cleanup-all")
 async def cleanup_all_sessions():
 
-    QdrantStorage().delete_all()
-
-    return {"message": "All session data deleted"}
+    try:
+        QdrantStorage().delete_all()
+        return {"message": "All session data deleted"}
+    except Exception as e:
+        logging.getLogger("uvicorn.error").warning(f"Failed to delete all sessions: {e}")
+        return {"message": "Failed to delete all sessions (see server logs)"}
 
 
 inngest.fast_api.serve(

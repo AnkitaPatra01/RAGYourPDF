@@ -32,11 +32,18 @@ def load_and_chunk_pdf(path: str):
     chunks = []
 
     for text in texts:
-        chunks.extend(splitter.split_text(text))
+        chunks.extend(
+            splitter.split_text(text)
+        )
 
     return chunks
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set"
+        )
+
     response = requests.post(
         "https://openrouter.ai/api/v1/embeddings",
         headers={
@@ -50,7 +57,11 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         timeout=120
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"OpenRouter embedding error "
+            f"{response.status_code}: {response.text}"
+        )
 
     data = response.json()["data"]
 
