@@ -463,8 +463,6 @@ if st.session_state.page == "upload":
 
                             st.session_state.chat_history = []
 
-                            time.sleep(2)
-
                         st.session_state.page = "chat"
 
                         st.rerun()

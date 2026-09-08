@@ -368,22 +368,43 @@ async def query_pdf(request: QueryRequest):
 @app.post("/ingest")
 async def ingest(request: IngestRequest):
     try:
-        await inngest_client.send(
-            inngest.Event(
-                name="rag/ingest_pdf",
-                data={
-                    "pdf_path": request.pdf_path,
-                    "source_id": request.source_id,
-                    "session_id": request.session_id,
-                },
+        cleanup_expired_data()
+        
+        chunks = load_and_chunk_pdf(request.pdf_path)
+        vecs = embed_texts(chunks)
+        
+        ids = [
+            str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{request.source_id}:{i}"
+                )
             )
+            for i in range(len(chunks))
+        ]
+        
+        expires_at = (
+            datetime.now(timezone.utc).timestamp()
+            + SESSION_EXPIRY_MINUTES * 60
         )
-
-        return {"message": "Ingest event queued"}
+        
+        payloads = [
+            {
+                "source": request.source_id,
+                "session_id": request.session_id,
+                "text": chunks[i],
+                "expires_at": expires_at
+            }
+            for i in range(len(chunks))
+        ]
+        
+        QdrantStorage().upsert(ids, vecs, payloads)
+        
+        return {"message": f"Successfully ingested {len(chunks)} chunks"}
 
     except Exception as e:
-        logging.getLogger("uvicorn.error").warning(f"Failed to queue ingest event: {e}")
-        return {"message": "Failed to queue ingest event (see server logs)"}
+        logging.getLogger("uvicorn.error").error(f"Failed to ingest PDF: {e}")
+        return {"message": f"Failed to ingest PDF: {str(e)}"}
 
 
 @app.delete("/cleanup")
