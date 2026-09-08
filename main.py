@@ -2,8 +2,9 @@ import asyncio
 import logging
 import uuid
 import os
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import inngest
@@ -270,12 +271,6 @@ class HeartbeatRequest(BaseModel):
     session_id: str | None = None
 
 
-class IngestRequest(BaseModel):
-    pdf_path: str
-    source_id: str
-    session_id: str | None = None
-
-
 @app.post("/heartbeat")
 async def heartbeat(request: HeartbeatRequest):
 
@@ -366,18 +361,60 @@ async def query_pdf(request: QueryRequest):
 
 
 @app.post("/ingest")
-async def ingest(request: IngestRequest):
+async def ingest(
+    file: UploadFile = File(...),
+    source_id: str = Form(...),
+    session_id: str | None = Form(None)
+):
+    temp_path = None
+
     try:
         cleanup_expired_data()
-        
-        chunks = load_and_chunk_pdf(request.pdf_path)
+
+        if not file.filename:
+            raise HTTPException(
+                status_code=400,
+                detail="No file uploaded"
+            )
+
+        if not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(
+                status_code=400,
+                detail="Only PDF files are supported"
+            )
+
+        uploads_dir = Path("uploads")
+        uploads_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        temp_path = uploads_dir / (
+            f"{uuid.uuid4()}_{file.filename}"
+        )
+
+        content = await file.read()
+
+        with open(temp_path, "wb") as f:
+            f.write(content)
+
+        chunks = load_and_chunk_pdf(
+            str(temp_path)
+        )
+
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="No text could be extracted from the PDF"
+            )
+
         vecs = embed_texts(chunks)
-        
+
         ids = [
             str(
                 uuid.uuid5(
                     uuid.NAMESPACE_URL,
-                    f"{request.source_id}:{i}"
+                    f"{source_id}:{i}"
                 )
             )
             for i in range(len(chunks))
@@ -390,21 +427,44 @@ async def ingest(request: IngestRequest):
         
         payloads = [
             {
-                "source": request.source_id,
-                "session_id": request.session_id,
+                "source": source_id,
+                "session_id": session_id,
                 "text": chunks[i],
                 "expires_at": expires_at
             }
             for i in range(len(chunks))
         ]
-        
-        QdrantStorage().upsert(ids, vecs, payloads)
-        
-        return {"message": f"Successfully ingested {len(chunks)} chunks"}
+        QdrantStorage().upsert(ids,vecs, payloads)
+
+        return {
+            "message": (
+                f"Successfully ingested "
+                f"{len(chunks)} chunks"
+            ),
+            "ingested": len(chunks)
+        }
+
+    except HTTPException:
+        raise
 
     except Exception as e:
-        logging.getLogger("uvicorn.error").error(f"Failed to ingest PDF: {e}")
-        return {"message": f"Failed to ingest PDF: {str(e)}"}
+        logging.getLogger(
+            "uvicorn.error"
+        ).exception(
+            f"Failed to ingest PDF: {e}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+    finally:
+        if temp_path and temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
 
 
 @app.delete("/cleanup")

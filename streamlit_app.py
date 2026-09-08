@@ -247,15 +247,6 @@ div[data-testid="stChatInput"] textarea {
 
 if "session_id" not in st.session_state:
 
-    response = requests.delete(
-        f"{FASTAPI_URL}/cleanup-all",
-        timeout=10
-    )
-
-    response.raise_for_status()
-
-    st.session_state.clear()
-
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.active_sources = []
     st.session_state.page = "upload"
@@ -299,19 +290,29 @@ async def send_rag_ingest_event(
     pdf_path: Path,
     source_id: str,
     session_id: str
-) -> None:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"{FASTAPI_URL}/ingest",
-            json={
-                "pdf_path": str(pdf_path.resolve()),
-                "source_id": source_id,
-                "session_id": session_id,
-            },
-        )
+) -> dict:
+    async with httpx.AsyncClient(timeout=180) as client:
+
+        with open(pdf_path, "rb") as pdf_file:
+
+            resp = await client.post(
+                f"{FASTAPI_URL}/ingest",
+                files={
+                    "file": (
+                        pdf_path.name,
+                        pdf_file,
+                        "application/pdf"
+                    )
+                },
+                data={
+                    "source_id": source_id,
+                    "session_id": session_id
+                }
+            )
 
         resp.raise_for_status()
 
+        return resp.json()
 
 def run_async(coro):
     return asyncio.run(coro)
@@ -443,13 +444,18 @@ if st.session_state.page == "upload":
                                 f"{st.session_state.session_id}:{uploaded.name}"
                             )
 
-                            run_async(
+                            ingest_result = run_async(
                                 send_rag_ingest_event(
                                     path,
                                     source_id,
                                     st.session_state.session_id
                                 )
                             )
+
+                            if ingest_result.get("ingested", 0) == 0:
+                                raise RuntimeError(
+                                    "PDF was uploaded but no content was ingested."
+                                )
 
                             if source_id not in st.session_state.active_sources:
 
